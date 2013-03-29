@@ -19,22 +19,62 @@ client.close
 
 ### Logging
 
-Since ruby_skynet uses SemanticLogger, trace level logging of all TCP/IP
+Since ruby_doozer uses SemanticLogger, trace level logging of all TCP/IP
 calls can be enabled as follows:
 
 ```ruby
 require 'rubygems'
-require 'ruby_skynet'
+require 'ruby_doozer'
 
 SemanticLogger::Logger.default_level = :trace
-SemanticLogger::Logger.appenders << SemanticLogger::Appender::File.new('skynet.log')
+SemanticLogger::Logger.appenders << SemanticLogger::Appender::File.new('doozer.log')
 
-class EchoService
-  include RubySkynet::Base
+client = RubyDoozer::Client.new(:server => '127.0.0.1:8046')
+client.set('/test/foo', 'value')
+result = client.get('/test/foo')
+client.close
+```
+
+### Registry
+
+RubyDoozer also includes a Registry class to support storing all configuration
+information in doozer. This Centralized Configuration allows configuration changes
+to be made dynamically at run-time and all interested parties will be notified
+of the changes.
+
+For example, making a change to the central database configuration will notify
+all application servers to drop their database connections and re-establish them
+to the new servers:
+
+```ruby
+require 'rubygems'
+require 'ruby_doozer'
+
+SemanticLogger::Logger.appenders << SemanticLogger::Appender::File.new('registry.log')
+
+region      = "Development"
+application = "sprites"
+path        = "/#{region}/#{application}/config/resources".downcase
+
+config_registry = RubyDoozer::Registry.new(:root_path => path)
+
+# Store the configuration information in doozer as a serialized string
+config_registry['master'] = "Some JSON config string"
+
+# Allow time for Doozer to publish the new config
+sleep 0.5
+
+# Retrieve the current configuration
+database_config = config_registry['master']
+slave_database_config = config_registry['secondary']
+
+# Register for any changes to the configuration
+config_registry.on_update('master') do |path, value|
+  puts "Time to re-establish database connections to new server: #{value}"
 end
 
-client = EchoService.new
-p client.echo(:hello => 'world')
+# Change the configuration and all subscribers will be notified
+config_registry['master'] = "Some updated JSON config string"
 ```
 
 ### Notes
