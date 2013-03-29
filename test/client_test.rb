@@ -9,6 +9,12 @@ require 'ruby_doozer/client'
 # NOTE:
 # This test assumes that doozerd is running locally on the default port of 8046
 
+# Register an appender if one is not already registered
+if SemanticLogger::Logger.appenders.size == 0
+  SemanticLogger::Logger.default_level = :trace
+  SemanticLogger::Logger.appenders << SemanticLogger::Appender::File.new('test.log')
+end
+
 # Unit Test for RubyDoozer::Client
 class ClientTest < Test::Unit::TestCase
   context RubyDoozer::Client do

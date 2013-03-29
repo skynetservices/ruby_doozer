@@ -26,6 +26,7 @@ task :gem  do |t|
     spec.add_dependency 'semantic_logger'
     spec.add_dependency 'resilient_socket'
     spec.add_dependency 'ruby_protobuf'
+    spec.add_dependency 'gene_pool'
   end
   Gem::Package.build gemspec
 end
