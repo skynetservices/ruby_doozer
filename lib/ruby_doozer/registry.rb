@@ -1,6 +1,7 @@
 require 'thread_safe'
 require 'gene_pool'
 require 'semantic_logger'
+require 'sync_attr'
 
 #
 # Registry
@@ -16,10 +17,11 @@ require 'semantic_logger'
 #
 module RubyDoozer
   class Registry
+    include SyncAttr
     # Logging instance for this class
     include SemanticLogger::Loggable
 
-    attr_reader :doozer_config, :doozer_pool
+    attr_reader :doozer_config, :doozer_pool, :current_revision
 
     # Create a Registry instance to manage a path of information within doozer
     #
@@ -28,12 +30,6 @@ module RubyDoozer
     #   It is not recommended to set the root_path to "/" as it will generate
     #   significant traffic since it will also monitor Doozer Admin changes
     #   Mandatory
-    #
-    # :cache [Boolean]
-    #   Keep a local copy in memory of all descendant values of the supplied root_path
-    #   Allows high-frequency calls to retrieve registry data
-    #   The cache will be kept in synch with any changes on the server
-    #   Default: true
     #
     # :doozer [Hash]
     #   Doozer configuration information
@@ -98,9 +94,6 @@ module RubyDoozer
       @root_path = @root_path[0..-2] if @root_path.end_with?("/")
       @root_path_with_trail = "#{@root_path}/"
 
-      local_copy = params.delete(:cache)
-      @registry = (local_copy == false) ? nil : ThreadSafe::Hash.new
-
       @doozer_config = params.delete(:doozer) || {}
       @doozer_config[:servers]                ||= ['127.0.0.1:8046']
       @doozer_config[:read_timeout]           ||= 5
@@ -122,47 +115,23 @@ module RubyDoozer
         RubyDoozer::Client.new(@doozer_config)
       end
 
-      @create_subscribers = ThreadSafe::Hash.new
-      @update_subscribers = ThreadSafe::Hash.new
-      @delete_subscribers = ThreadSafe::Hash.new
-
-      revision = nil
-      path = "#{@root_path}/**"
-      doozer_pool.with_connection do |doozer|
-        revision = doozer.current_revision
-        if @registry
-          # Fetch all the configuration information from Doozer and set the internal copy
-          doozer.walk(path, revision).each do |node|
-            @registry[relative_path(node.path)] = node.value
-          end
-        end
-      end
-
-      # Start monitoring thread to keep the registry in synch with doozer
-      @monitor_thread = Thread.new { watch_registry(path, revision + 1) }
-
       # Generate warning log entries for any unknown configuration options
       params.each_pair {|k,v| logger.warn "Ignoring unknown configuration option: #{k}"}
     end
 
+    # Start callback monitoring thread
+    sync_attr_reader :monitor_thread do
+      Thread.new { watch_registry }
+    end
+
     # Retrieve the latest value from a specific path from the registry
-    # If :cache was set to false on the initializer this call will
-    # make a network call to doozer to retrieve the current value
-    # Otherwise it is an in memory call and can be called frequently
     def [](path)
-      if @registry
-        @registry[path]
-      else
-        doozer_pool.with_connection do |doozer|
-          doozer[full_path(path)]
-        end
+      doozer_pool.with_connection do |doozer|
+        doozer[full_path(path)]
       end
     end
 
     # Replace the latest value at a specific path
-    # The in-memory copy will be updated when doozer sends out the change
-    # TODO Should we also update the in memory copy rather than wait for the change
-    #      notification?
     def []=(path,value)
       doozer_pool.with_connection do |doozer|
         doozer[full_path(path)] = value
@@ -170,15 +139,10 @@ module RubyDoozer
     end
 
     # Delete the value at a specific path
-    # The in-memory copy will be updated when doozer sends out the change
-    # TODO Should we also delete the in memory copy rather than wait for the change
-    #      notification?
     def delete(path)
-      old_value = @registry[path] if @registry
       doozer_pool.with_connection do |doozer|
         doozer.delete(full_path(path))
       end
-      old_value
     end
 
     # Iterate over every key, value pair in the registry at the root_path
@@ -190,27 +154,26 @@ module RubyDoozer
     # Example:
     #   registry.each_pair {|k,v| puts "#{k} => #{v}"}
     def each_pair(&block)
-      if @registry
-        @registry.dup.each_pair(&block)
-      else
-        path = "#{@root_path}/**"
-        doozer_pool.with_connection do |doozer|
-          doozer.walk(path, revision).each do |node|
-            block.call(relative_path(node.path), node.value)
-          end
+      path = "#{@root_path}/**"
+      doozer_pool.with_connection do |doozer|
+        doozer.walk(path, doozer.current_revision).each do |node|
+          block.call(relative_path(node.path), node.value)
         end
       end
     end
 
+    # Returns [Array<String>] all paths in the registry
+    def paths
+      paths = []
+      each_pair {|k,v| paths << k}
+      paths
+    end
+
     # Returns a copy of the registry as a Hash
     def to_h
-      if @registry
-        @registry.dup
-      else
-        h = {}
-        each_pair {|k,v| h[k] = v}
-        h
-      end
+      h = {}
+      each_pair {|k,v| h[k] = v}
+      h
     end
 
     # Cleanup on process termination
@@ -224,39 +187,18 @@ module RubyDoozer
       @doozer_pool = nil
     end
 
-    # When an entry is created the block will be called
-    #  Parameters
-    #    path
-    #      The relative path _excluding_ the root_path to watch for changes
-    #      #TODO Or a regular expression
-    #    block
-    #      The block to be called
-    #
-    #  Parameters passed to the block:
-    #    path
-    #      The path that was created
-    #
-    #    value
-    #      New value from doozer
-    #
-    # Example:
-    #   registry.on_update do |path, value|
-    #     puts "#{path} was created with #{value}"
-    #   end
-    def on_create(path, &block)
-      (@create_subscribers[path] ||= ThreadSafe::Array.new) << block
-    end
-
     # When an entry is updated the block will be called
     #  Parameters
     #    path
-    #      The relative path _excluding_ the root_path to watch for changes
+    #      The relative path to watch for changes
     #    block
     #      The block to be called
     #
     #  Parameters passed to the block:
     #    path
-    #      The path that was deleted from doozer
+    #      The path that was updated in doozer
+    #      Supplying a path of '*' means all paths
+    #      Default: '*'
     #
     #    value
     #      New value from doozer
@@ -269,24 +211,24 @@ module RubyDoozer
     #   registry.on_update do |path, value, old_value|
     #     puts "#{path} was updated to #{value} with previous value #{old_value}"
     #   end
-    #
-    # Warning:
-    #   If :cache is set to false then on_update will never be called
-    #   Every change will go to subscribers of #on_create()
-    def on_update(path, &block)
-      (@update_subscribers[path] ||= ThreadSafe::Array.new) << block
+    def on_update(path='*', &block)
+      # Start monitoring thread if not already started
+      monitor_thread
+      ((@update_subscribers ||= ThreadSafe::Hash.new)[path] ||= ThreadSafe::Array.new) << block
     end
 
     # When an entry is deleted the block will be called
     #  Parameters
     #    path
-    #      The relative path _excluding_ the root_path to watch for changes
+    #      The relative path to watch for changes
     #    block
     #      The block to be called
     #
     #  Parameters passed to the block:
     #    path
     #      The path that was deleted from doozer
+    #      Supplying a path of '*' means all paths
+    #      Default: '*'
     #
     #    old_value
     #      nil if :cache is false
@@ -296,15 +238,14 @@ module RubyDoozer
     #   registry.on_delete do |path, old_value|
     #     puts "#{path} was deleted with previous value #{old_value}"
     #   end
-    def on_delete(path, &block)
-      (@delete_subscribers[path] ||= ThreadSafe::Array.new) << block
+    def on_delete(path='*', &block)
+      # Start monitoring thread if not already started
+      monitor_thread
+      ((@delete_subscribers ||= ThreadSafe::Hash.new)[path] ||= ThreadSafe::Array.new) << block
     end
 
     ############################
     protected
-
-    #Subscription = Struct.new(:path, :block, :reg_exp)
-
 
     # Returns the full path given a relative path
     def full_path(relative_path)
@@ -318,41 +259,53 @@ module RubyDoozer
 
     # The path has been added or updated in the registry
     def changed(path, value)
-      logger.debug { "Changed: #{path} => #{value}" }
-      old_value = nil
+      logger.debug { "Updated: #{path} => #{value}" }
 
-      # Keeping a local copy of the registry?
-      if @registry
-        # Already have a value?
-        old_value = @registry[path]
+      return unless @update_subscribers
 
-        # Update in memory copy
-        @registry[path] = value
+      # Subscribers to specific paths
+      if subscribers = @update_subscribers[path]
+        subscribers.each{|subscriber| subscriber.call(path, value)}
       end
 
-      if subscribers = old_value ? @update_subscribers[path] : @create_subscribers[path]
-        subscribers.each{|subscriber| subscriber.call(path, value, old_value)}
+      # Any subscribers for all events?
+      if all_subscribers = @update_subscribers['*']
+        all_subscribers.each{|subscriber| subscriber.call(path, value)}
       end
     end
 
     # Existing data has been removed from the registry
     def deleted(path)
       logger.debug { "Deleted: #{path}" }
-      old_value = @registry.delete(path) if @registry
+
+      return unless @delete_subscribers
+
+      # Subscribers to specific paths
       if subscribers = @delete_subscribers[path]
-        subscribers.each{|subscriber| subscriber.call(path, old_value)}
+        subscribers.each{|subscriber| subscriber.call(path)}
+      end
+
+      # Any subscribers for all events?
+      if all_subscribers = @delete_subscribers['*']
+        all_subscribers.each{|subscriber| subscriber.call(path)}
       end
     end
 
     # Waits for any updates from Doozer and updates the internal service registry
-    def watch_registry(watch_path, revision)
+    def watch_registry
+      watch_path = "#{@root_path}/**"
       logger.info "Start monitoring #{watch_path}"
       # This thread must use its own dedicated doozer connection
       doozer = RubyDoozer::Client.new(@doozer_config)
+      @current_revision ||= doozer.current_revision
 
-      # Watch for any changes
-      doozer.watch(watch_path, revision) do |node|
+      # Watch for any new changes
+      logger.debug "Monitoring thread started. Waiting for Registry Changes"
+      doozer.watch(watch_path, @current_revision + 1) do |node|
         logger.trace "Registry Change Notification", node
+
+        # Update the current_revision with every change notification
+        @current_revision = node.rev
 
         # Remove the Root path
         path = relative_path(node.path)
@@ -365,9 +318,11 @@ module RubyDoozer
         else
           logger.error "Unknown flags returned by doozer:#{node.flags}"
         end
-        logger.trace "Updated registry", @registry
       end
       logger.info "Stopping monitoring thread normally"
+
+    # #TODO need more exception handling here
+
     rescue Exception => exc
       logger.error "Exception in monitoring thread", exc
     ensure

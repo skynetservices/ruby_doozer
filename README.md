@@ -68,9 +68,58 @@ sleep 0.5
 database_config = config_registry['master']
 slave_database_config = config_registry['secondary']
 
+# Register for any changes to the configuration, including updates
+config_registry.on_update('master') do |path, value|
+  puts "Time to re-establish database connections to new server: #{value}"
+end
+
+# Change the configuration and all subscribers will be notified
+config_registry['master'] = "Some updated JSON config string"
+```
+
+### Cached Registry
+
+Cache Registry is a specialized registry that keeps a local copy of the entire
+registry in memory. It also keeps the local copy synchronized with any changes
+that occur in doozer
+
+The local copy is useful for scenarios where frequent reads are being
+performed against the Registry and the data must be kept up to date.
+
+Cached Registry can also distinguish between creates and updates.
+The new #on_update callbacks will be called when existing data has been modified.
+It also means that #on_create callbacks will now only be called if the data is new
+
+```ruby
+require 'rubygems'
+require 'ruby_doozer'
+
+SemanticLogger::Logger.appenders << SemanticLogger::Appender::File.new('registry.log')
+
+region      = "Development"
+application = "sprites"
+path        = "/#{region}/#{application}/config/resources".downcase
+
+config_registry = RubyDoozer::CachedRegistry.new(:root_path => path)
+
+# Store the configuration information in doozer as a serialized string
+config_registry['master'] = "Some JSON config string"
+
+# Allow time for Doozer to publish the new config
+sleep 0.5
+
+# Retrieve the current configuration
+database_config = config_registry['master']
+slave_database_config = config_registry['secondary']
+
 # Register for any changes to the configuration
 config_registry.on_update('master') do |path, value|
   puts "Time to re-establish database connections to new server: #{value}"
+end
+
+# Register for all create events
+config_registry.on_create('*') do |path, value|
+  puts "CREATED #{path}"
 end
 
 # Change the configuration and all subscribers will be notified

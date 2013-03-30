@@ -16,8 +16,8 @@ if SemanticLogger::Logger.appenders.size == 0
 end
 
 # Unit Test for RubyDoozer::Client
-class RegistryTest < Test::Unit::TestCase
-  context RubyDoozer::Registry do
+class CachedRegistryTest < Test::Unit::TestCase
+  context RubyDoozer::CachedRegistry do
     context "with test data" do
       setup do
         @test_data = {
@@ -27,20 +27,17 @@ class RegistryTest < Test::Unit::TestCase
         }
         # Doozer does not allow '_' in path names
         @root_path = "/registrytest"
-        @client = RubyDoozer::Client.new(:server => 'localhost:8046')
-        @test_data.each_pair {|k,v| @client.set("#{@root_path}/#{k}",v)}
-
-        @registry = RubyDoozer::Registry.new(:root_path => @root_path)
+        @registry = RubyDoozer::CachedRegistry.new(:root_path => @root_path)
+        @test_data.each_pair {|k,v| @registry[k] = v}
+        # Give doozer time to send back the changes
+        sleep 0.5
       end
 
       def teardown
-        @registry.finalize if @registry
-        if @client
-          @test_data.each_pair do |k,v|
-            @client.delete("#{@root_path}/#{k}")
-          end
-          @client.delete("#{@root_path}/three")
-          @client.close
+        if @registry
+          @test_data.each_pair {|k,v| @registry.delete(k)}
+          @registry.delete('three')
+          @registry.finalize
         end
       end
 
@@ -58,14 +55,28 @@ class RegistryTest < Test::Unit::TestCase
 
       should "successfully set and retrieve data" do
         @registry['three'] = 'value'
-        # Allow doozer to send back the change
-        sleep 0.3
+        # Give doozer time to send back the change
+        sleep 0.5
         result = @registry['three']
         assert_equal 'value', result
       end
 
       [nil, '*'].each do |monitor_path|
         context "with monitor_path:#{monitor_path}" do
+          should "callback on create" do
+            created_path = nil
+            created_value = nil
+            @registry.on_create(monitor_path||'three') do |path, value|
+              created_path = path
+              created_value = value
+            end
+            @registry['three'] = 'created'
+            # Allow doozer to send back the change
+            sleep 0.5
+            assert_equal 'three', created_path
+            assert_equal 'created', created_value
+          end
+
           should "callback on update" do
             updated_path = nil
             updated_value = nil
@@ -73,11 +84,9 @@ class RegistryTest < Test::Unit::TestCase
               updated_path = path
               updated_value = value
             end
-            # Allow monitoring thread to start
-            sleep 0.1
             @registry['bar'] = 'updated'
             # Allow doozer to send back the change
-            sleep 0.3
+            sleep 0.5
             assert_equal 'bar', updated_path
             assert_equal 'updated', updated_value
           end
@@ -87,11 +96,9 @@ class RegistryTest < Test::Unit::TestCase
             @registry.on_delete(monitor_path||'bar') do |path|
               deleted_path = path
             end
-            # Allow monitoring thread to start
-            sleep 0.1
             # Allow doozer to send back the change
             @registry.delete('bar')
-            sleep 0.3
+            sleep 0.5
             assert_equal 'bar', deleted_path
           end
         end
@@ -99,6 +106,20 @@ class RegistryTest < Test::Unit::TestCase
 
       ['other', 'one'].each do |monitor_path|
         context "with monitor_path:#{monitor_path}" do
+          should "not callback on create" do
+            created_path = nil
+            created_value = nil
+            @registry.on_create(monitor_path) do |path, value|
+              created_path = path
+              created_value = value
+            end
+            @registry['three'] = 'created'
+            # Allow doozer to send back the change
+            sleep 0.5
+            assert_equal nil, created_path
+            assert_equal nil, created_value
+          end
+
           should "not callback on update" do
             updated_path = nil
             updated_value = nil
@@ -106,11 +127,9 @@ class RegistryTest < Test::Unit::TestCase
               updated_path = path
               updated_value = value
             end
-            # Allow monitoring thread to start
-            sleep 0.1
             @registry['bar'] = 'updated'
-            # Allow doozer to send back the change
-            sleep 0.3
+            # Give doozer time to send back the change
+            sleep 0.5
             assert_equal nil, updated_path
             assert_equal nil, updated_value
           end
@@ -120,16 +139,14 @@ class RegistryTest < Test::Unit::TestCase
             @registry.on_delete(monitor_path) do |path|
               deleted_path = path
             end
-            # Allow monitoring thread to start
-            sleep 0.1
-            # Allow doozer to send back the change
             @registry.delete('bar')
-            sleep 0.3
+            # Give doozer time to send back the change
+            sleep 0.5
             assert_equal nil, deleted_path
           end
         end
       end
-
     end
+
   end
 end
