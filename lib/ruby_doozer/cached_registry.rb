@@ -29,16 +29,14 @@ module RubyDoozer
     #
     def initialize(params)
       super
-      @registry           = ThreadSafe::Hash.new
+      @registry = ThreadSafe::Hash.new
 
       path = "#{@root_path}/**"
       doozer_pool.with_connection do |doozer|
         @current_revision = doozer.current_revision
-        if @registry
-          # Fetch all the configuration information from Doozer and set the internal copy
-          doozer.walk(path, @current_revision).each do |node|
-            @registry[relative_path(node.path)] = node.value
-          end
+        # Fetch all the configuration information from Doozer and set the internal copy
+        doozer.walk(path, @current_revision).each do |node|
+          @registry[relative_path(node.path)] = node.value
         end
       end
 
@@ -56,6 +54,8 @@ module RubyDoozer
     # Example:
     #   registry.each_pair {|k,v| puts "#{k} => #{v}"}
     def each_pair(&block)
+      # Have to duplicate the registry otherwise changes to the registry will
+      # interfere with the iterator
       @registry.dup.each_pair(&block)
     end
 
@@ -65,7 +65,7 @@ module RubyDoozer
     end
 
     # Returns a copy of the registry as a Hash
-    def to_h
+    def to_hash
       @registry.dup
     end
 

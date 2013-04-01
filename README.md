@@ -79,7 +79,7 @@ config_registry['master'] = "Some updated JSON config string"
 
 ### Cached Registry
 
-Cache Registry is a specialized registry that keeps a local copy of the entire
+Cached Registry is a specialized registry that keeps a local copy of the entire
 registry in memory. It also keeps the local copy synchronized with any changes
 that occur in doozer
 
@@ -88,7 +88,7 @@ performed against the Registry and the data must be kept up to date.
 
 Cached Registry can also distinguish between creates and updates.
 The new #on_update callbacks will be called when existing data has been modified.
-It also means that #on_create callbacks will now only be called if the data is new
+As a result Registry#on_update callbacks will only be called for existing data
 
 ```ruby
 require 'rubygems'
