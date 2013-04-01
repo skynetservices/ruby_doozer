@@ -156,8 +156,8 @@ module RubyDoozer
     def each_pair(&block)
       path = "#{@root_path}/**"
       doozer_pool.with_connection do |doozer|
-        doozer.walk(path, doozer.current_revision).each do |node|
-          block.call(relative_path(node.path), node.value)
+        doozer.walk(path) do |path, value, revision|
+          block.call(relative_path(path), value)
         end
       end
     end

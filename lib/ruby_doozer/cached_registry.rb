@@ -35,8 +35,8 @@ module RubyDoozer
       doozer_pool.with_connection do |doozer|
         @current_revision = doozer.current_revision
         # Fetch all the configuration information from Doozer and set the internal copy
-        doozer.walk(path, @current_revision).each do |node|
-          set_cached_value(relative_path(node.path), node.value)
+        doozer.walk(path, @current_revision) do |path, value, revision|
+          set_cached_value(relative_path(path), value)
         end
       end
 

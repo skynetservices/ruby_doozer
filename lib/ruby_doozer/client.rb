@@ -109,27 +109,39 @@ module RubyDoozer
       invoke(Request.new(:path => secret, :verb => Request::Verb::ACCESS))
     end
 
-    # Returns every entry in the supplied path
+    # Iterate over every entry in the supplied path
     # path can also contain wildcard characters such as '*'
+    #
+    # Parameters:
+    #   path
+    #     The path including wildcard specifiers
+    #     The path must begin with '/'
+    #     The path can contain any of the following wildcard specifiers:
+    #       **            Includes the directory and it's children
+    #       *             Only values with that path
+    #     Example paths:
+    #       /**
+    #       /*
+    #       /configs/**
+    #       /ctl/node/*/addr
+    #
     # Example:
-    #   hosts = []
-    #   walk('/ctl/node/*/addr', current_revision).each do |node|
-    #     hosts << node.value unless hosts.include? node.value
+    #   client.walk('/**') do |path, value, revision|
+    #     puts "Found: #{path} => #{value}, Revision: #{revision}"
     #   end
-    def walk(path, rev = nil, offset = 0)
-      paths = []
+    def walk(path, rev = nil, offset = 0, &block)
+      paths = block ? nil : []
       revision = rev || current_revision
       # Resume walk on network connection failure
       @socket.retry_on_connection_failure do
         while true
           send(Request.new(:path => path, :rev => revision , :offset => offset, :verb => Request::Verb::WALK))
           response = read
-          if response.err_code
+          if response.err_code != 0
             break if response.err_code == Response::Err::RANGE
-          else
-            raise ResponseError.new("#{Response::Err.name_by_value(response.err_code)}: #{response.err_detail}") if response.err_code != 0
+            raise ResponseError.new("#{Response::Err.name_by_value(response.err_code)}: #{response.err_detail}")
           end
-          paths << response
+          block ? block.call(response.path, response.value, response.rev) : paths << response
           offset += 1
         end
       end
@@ -140,8 +152,8 @@ module RubyDoozer
     # representing another Doozer server that can be connected to
     def doozer_hosts
       hosts = []
-      walk('/ctl/node/*/addr', current_revision).each do |node|
-        hosts << node.value unless hosts.include? node.value
+      walk('/ctl/node/*/addr') do |path, value, revision|
+        hosts << value unless hosts.include? value
       end
     end
 
@@ -193,11 +205,13 @@ module RubyDoozer
     # Send the protobuf Request to Doozer
     def send(request)
       # Translate path so that underscores are converted to minuses
-      request.path.gsub!('_', '-')
+      # Don't change the original input value
+      request.path = request.path.gsub('_', '-')
       request.tag = 0
       data = request.serialize_to_string
       # An additional header is added to the request indicating the size of the request
       head = [data.length].pack("N")
+      logger.trace('Sending') {request.to_hash}
       @socket.write(head+data)
     end
 
@@ -208,7 +222,8 @@ module RubyDoozer
       length = head.unpack("N")[0]
       response = Response.new.parse_from_string(@socket.read(length))
       # Translate returned path so that minuses are converted to underscores
-      response.path.gsub!('_', '-')
+      response.path.gsub!('-', '_')
+      logger.trace('Received') {response.to_hash}
       response
     end
 

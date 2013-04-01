@@ -34,6 +34,8 @@ class ClientTest < Test::Unit::TestCase
     end
 
     context "with client connection" do
+      PATHS = ['/test/foo', '/test/with_underscores', '/test/deeper_one/and_again_with_multiple']
+
       setup do
         @client = RubyDoozer::Client.new(:server => 'localhost:8046')
       end
@@ -41,7 +43,7 @@ class ClientTest < Test::Unit::TestCase
       def teardown
         if @client
           @client.close
-          @client.delete('/test/foo')
+          PATHS.each {|path| @client.delete(path)}
         end
       end
 
@@ -49,19 +51,37 @@ class ClientTest < Test::Unit::TestCase
         assert @client.current_revision >= 0
       end
 
-      ['/test/foo', '/test/with_underscores'].each do |path|
+      context "successfully set and get data" do
+        PATHS.each do |path|
+          should "in #{path}" do
+            new_revision = @client.set(path, 'value')
+            result = @client.get(path)
+            assert_equal 'value', result.value
+            assert_equal new_revision, result.rev
+          end
 
-        should "successfully set and get data in #{path}" do
-          new_revision = @client.set(path, 'value')
-          result = @client.get(path)
-          assert_equal 'value', result.value
-          assert_equal new_revision, result.rev
+          should "successfully set and get data using array operators in #{path}" do
+            @client[path] = 'value2'
+            result = @client[path]
+            assert_equal 'value2', result
+          end
+        end
+      end
+
+      context "with a directory tree" do
+        setup do
+          PATHS.each {|path| @client[path] = path}
         end
 
-        should "successfully set and get data using array operators in #{path}" do
-          @client[path] = 'value2'
-          result = @client[path]
-          assert_equal 'value2', result
+        should "walk" do
+          # Fetch all the configuration information from Doozer and set the internal copy
+          count = 0
+          @client.walk('/test/**') do |path, value, revision|
+            assert_equal true, PATHS.include?(path)
+            assert_equal path, value
+            count += 1
+          end
+          assert_equal PATHS.size, count
         end
       end
 
