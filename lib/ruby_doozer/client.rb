@@ -9,6 +9,11 @@ module RubyDoozer
     include SemanticLogger::Loggable
 
     # Create a resilient client connection to a Doozer server
+    #
+    # Since Doozer does not support '_' and it is very prevalent in Ruby, all
+    # '_' passed in the path will be converted to '-' when calling doozer.
+    # All paths in doozer that contain '-' on the way back from doozer will be
+    # converted to '_'
     def initialize(params={})
       # User configurable options
       params[:read_timeout]           ||= 5
@@ -187,6 +192,8 @@ module RubyDoozer
 
     # Send the protobuf Request to Doozer
     def send(request)
+      # Translate path so that underscores are converted to minuses
+      request.path.gsub!('_', '-')
       request.tag = 0
       data = request.serialize_to_string
       # An additional header is added to the request indicating the size of the request
@@ -199,7 +206,10 @@ module RubyDoozer
       # First strip the additional header indicating the size of the subsequent response
       head = @socket.read(4,nil,timeout)
       length = head.unpack("N")[0]
-      Response.new.parse_from_string(@socket.read(length))
+      response = Response.new.parse_from_string(@socket.read(length))
+      # Translate returned path so that minuses are converted to underscores
+      response.path.gsub!('_', '-')
+      response
     end
 
   end

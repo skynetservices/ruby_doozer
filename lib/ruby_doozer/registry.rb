@@ -170,7 +170,7 @@ module RubyDoozer
     end
 
     # Returns a copy of the registry as a Hash
-    def to_hash
+    def to_h
       h = {}
       each_pair {|k,v| h[k] = v}
       h

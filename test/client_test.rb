@@ -49,17 +49,20 @@ class ClientTest < Test::Unit::TestCase
         assert @client.current_revision >= 0
       end
 
-      should "successfully set and get data" do
-        new_revision = @client.set('/test/foo', 'value')
-        result = @client.get('/test/foo')
-        assert_equal 'value', result.value
-        assert_equal new_revision, result.rev
-      end
+      ['/test/foo', '/test/with_underscores'].each do |path|
 
-      should "successfully set and get data using array operators" do
-        @client['/test/foo'] = 'value2'
-        result = @client['/test/foo']
-        assert_equal 'value2', result
+        should "successfully set and get data in #{path}" do
+          new_revision = @client.set(path, 'value')
+          result = @client.get(path)
+          assert_equal 'value', result.value
+          assert_equal new_revision, result.rev
+        end
+
+        should "successfully set and get data using array operators in #{path}" do
+          @client[path] = 'value2'
+          result = @client[path]
+          assert_equal 'value2', result
+        end
       end
 
       should "fetch directories in a path" do

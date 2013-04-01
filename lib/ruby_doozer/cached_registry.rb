@@ -29,14 +29,14 @@ module RubyDoozer
     #
     def initialize(params)
       super
-      @registry = ThreadSafe::Hash.new
+      @cache = ThreadSafe::Hash.new
 
       path = "#{@root_path}/**"
       doozer_pool.with_connection do |doozer|
         @current_revision = doozer.current_revision
         # Fetch all the configuration information from Doozer and set the internal copy
         doozer.walk(path, @current_revision).each do |node|
-          @registry[relative_path(node.path)] = node.value
+          set_cached_value(relative_path(node.path), node.value)
         end
       end
 
@@ -46,7 +46,7 @@ module RubyDoozer
 
     # Retrieve the latest value from a specific path from the registry
     def [](path)
-      @registry[path]
+      @cache[path]
     end
 
     # Iterate over every key, value pair in the registry at the root_path
@@ -56,17 +56,17 @@ module RubyDoozer
     def each_pair(&block)
       # Have to duplicate the registry otherwise changes to the registry will
       # interfere with the iterator
-      @registry.dup.each_pair(&block)
+      @cache.dup.each_pair(&block)
     end
 
     # Returns [Array<String>] all paths in the registry
     def paths
-      @registry.keys
+      @cache.keys
     end
 
     # Returns a copy of the registry as a Hash
-    def to_hash
-      @registry.dup
+    def to_h
+      @cache.dup
     end
 
     # When an entry is created the block will be called
@@ -96,12 +96,29 @@ module RubyDoozer
     ############################
     protected
 
+    # Sets the internal value for a specific key
+    # Called on startup to fill the internal registry and then every time a value
+    # changes in doozer
+    # This method can be replaced by derived Registries to change the format of
+    # the registry
+    def set_cached_value(doozer_path, value)
+      @cache[doozer_path] = value
+    end
+
+    # Returns the internal value for a specific key
+    # Called every time a value changes in doozer
+    # This method can be replaced by derived Registries to change the format of
+    # the registry
+    def get_cached_value(doozer_path)
+      @cache[doozer_path]
+    end
+
     # The path has been added or updated in the registry
     def changed(path, value)
-      previous_value = @registry[path]
+      previous_value = get_cached_value(path)
 
       # Update in memory copy
-      @registry[path] = value
+      set_cached_value(path, value)
 
       # It is an update if we already have a value
       if previous_value
