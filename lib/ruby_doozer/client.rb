@@ -5,7 +5,6 @@ require 'ruby_doozer/msg.pb'
 
 module RubyDoozer
   class Client
-
     include SemanticLogger::Loggable
 
     # Create a resilient client connection to a Doozer server
@@ -76,8 +75,10 @@ module RubyDoozer
     end
 
     # Returns just the value at the supplied path, not the revision
+    # Returns nil when the key was not found
     def [](path)
-      get(path).value
+      result = get(path)
+      result.rev > 0 ? result.value : nil
     end
 
     # Deletes the file at path if rev is greater than or equal to the file's revision.

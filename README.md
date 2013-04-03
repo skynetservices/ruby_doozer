@@ -26,8 +26,8 @@ calls can be enabled as follows:
 require 'rubygems'
 require 'ruby_doozer'
 
-SemanticLogger::Logger.default_level = :trace
-SemanticLogger::Logger.appenders << SemanticLogger::Appender::File.new('doozer.log')
+SemanticLogger.default_level = :info
+SemanticLogger.add_appender('doozer.log')
 
 client = RubyDoozer::Client.new(:server => '127.0.0.1:8046')
 client.set('/test/foo', 'value')
@@ -50,7 +50,8 @@ to the new servers:
 require 'rubygems'
 require 'ruby_doozer'
 
-SemanticLogger::Logger.appenders << SemanticLogger::Appender::File.new('registry.log')
+SemanticLogger.default_level = :info
+SemanticLogger.add_appender('registry.log')
 
 region      = "Development"
 application = "sprites"
@@ -94,7 +95,8 @@ As a result Registry#on_update callbacks will only be called for existing data
 require 'rubygems'
 require 'ruby_doozer'
 
-SemanticLogger::Logger.appenders << SemanticLogger::Appender::File.new('registry.log')
+SemanticLogger.default_level = :info
+SemanticLogger.add_appender('registry.log')
 
 region      = "Development"
 application = "sprites"

@@ -10,10 +10,8 @@ require 'ruby_doozer/client'
 # This test assumes that doozerd is running locally on the default port of 8046
 
 # Register an appender if one is not already registered
-if SemanticLogger::Logger.appenders.size == 0
-  SemanticLogger::Logger.default_level = :trace
-  SemanticLogger::Logger.appenders << SemanticLogger::Appender::File.new('test.log')
-end
+SemanticLogger.default_level = :trace
+SemanticLogger.add_appender('test.log') if SemanticLogger.appenders.size == 0
 
 # Unit Test for RubyDoozer::Client
 class ClientTest < Test::Unit::TestCase
@@ -49,6 +47,10 @@ class ClientTest < Test::Unit::TestCase
 
       should "return current revision" do
         assert @client.current_revision >= 0
+      end
+
+      should "return nil when a key is not found" do
+        assert_equal nil, @client['/test/some_bad_key']
       end
 
       context "successfully set and get data" do

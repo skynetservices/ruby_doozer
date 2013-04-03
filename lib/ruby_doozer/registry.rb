@@ -21,7 +21,7 @@ module RubyDoozer
     # Logging instance for this class
     include SemanticLogger::Loggable
 
-    attr_reader :doozer_config, :doozer_pool, :current_revision
+    attr_reader :doozer_config, :doozer_pool, :current_revision, :root_path
 
     # Create a Registry instance to manage a path of information within doozer
     #
@@ -203,13 +203,9 @@ module RubyDoozer
     #    value
     #      New value from doozer
     #
-    #    old_value
-    #      nil if :cache is false
-    #      otherwise the last value for this path in the local copy of the registry
-    #
     # Example:
     #   registry.on_update do |path, value, old_value|
-    #     puts "#{path} was updated to #{value} with previous value #{old_value}"
+    #     puts "#{path} was updated to #{value}"
     #   end
     def on_update(path='*', &block)
       # Start monitoring thread if not already started
@@ -230,13 +226,9 @@ module RubyDoozer
     #      Supplying a path of '*' means all paths
     #      Default: '*'
     #
-    #    old_value
-    #      nil if :cache is false
-    #      otherwise the last value for this path in the local copy of the registry
-    #
     # Example:
-    #   registry.on_delete do |path, old_value|
-    #     puts "#{path} was deleted with previous value #{old_value}"
+    #   registry.on_delete do |path|
+    #     puts "#{path} was deleted"
     #   end
     def on_delete(path='*', &block)
       # Start monitoring thread if not already started
