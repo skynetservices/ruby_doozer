@@ -62,42 +62,55 @@ class CachedRegistryTest < Test::Unit::TestCase
       [nil, '*'].each do |monitor_path|
         context "with monitor_path:#{monitor_path}" do
           should "callback on create" do
+            created_revision = nil
             created_path = nil
             created_value = nil
-            @registry.on_create(monitor_path||'three') do |path, value|
+            @registry.on_create(monitor_path||'three') do |path, value, revision|
+              created_revision = revision
               created_path = path
               created_value = value
             end
             @registry['three'] = 'created'
             # Allow doozer to send back the change
-            sleep 0.5
+            sleep 0.3
             assert_equal 'three', created_path
             assert_equal 'created', created_value
+            assert_equal true, created_revision > 0
           end
 
           should "callback on update" do
+            updated_revision = nil
             updated_path = nil
             updated_value = nil
-            @registry.on_update(monitor_path||'bar') do |path, value|
+            @registry.on_update(monitor_path||'bar') do |path, value, revision|
+              updated_revision = revision
               updated_path = path
               updated_value = value
             end
+            # Allow monitoring thread to start
+            sleep 0.1
             @registry['bar'] = 'updated'
             # Allow doozer to send back the change
-            sleep 0.5
+            sleep 0.3
             assert_equal 'bar', updated_path
             assert_equal 'updated', updated_value
+            assert_equal true, updated_revision > 0
           end
 
           should "callback on delete" do
             deleted_path = nil
-            @registry.on_delete(monitor_path||'bar') do |path|
+            deleted_revision = nil
+            @registry.on_delete(monitor_path||'bar') do |path, revision|
               deleted_path = path
+              deleted_revision = revision
             end
+            # Allow monitoring thread to start
+            sleep 0.1
             # Allow doozer to send back the change
             @registry.delete('bar')
-            sleep 0.5
+            sleep 0.3
             assert_equal 'bar', deleted_path
+            assert_equal true, deleted_revision > 0
           end
         end
       end

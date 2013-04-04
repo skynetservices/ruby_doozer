@@ -10,8 +10,8 @@ require 'semantic_logger'
 #
 # Notifies registered subscribers when information has changed
 #
-# All paths specified are relative to the root_path. As such the root path
-# is never returned, nor is it required when a path is supplied as input.
+# All paths specified are relative to the root_path. As such the root key
+# is never returned, nor is it required when a key is supplied as input.
 # For example, with a root_path of /foo/bar, any paths passed in will leave
 # out the root_path: host/name
 #
@@ -23,7 +23,12 @@ module RubyDoozer
     # Logging instance for this class
     include SemanticLogger::Loggable
 
-    # Create a Registry instance to manage a path of information within doozer
+    # Create a Registry instance to manage information within doozer
+    # and keep a local cached copy of the data in doozer to support
+    # high-speed or frequent reads.
+    #
+    # Writes are sent to doozer and then replicate back to the local cache
+    # only once doozer has updated its store
     #
     # See RubyDoozer::Registry for complete list of options
     #
@@ -31,12 +36,12 @@ module RubyDoozer
       super
       @cache = ThreadSafe::Hash.new
 
-      path = "#{@root_path}/**"
+      key = "#{@root}/**"
       doozer_pool.with_connection do |doozer|
         @current_revision = doozer.current_revision
         # Fetch all the configuration information from Doozer and set the internal copy
-        doozer.walk(path, @current_revision) do |path, value, revision|
-          set_cached_value(relative_path(path), value)
+        doozer.walk(key, @current_revision) do |key, value, revision|
+          set_cached_value(relative_key(key), value)
         end
       end
 
@@ -44,9 +49,9 @@ module RubyDoozer
       monitor_thread
     end
 
-    # Retrieve the latest value from a specific path from the registry
-    def [](path)
-      @cache[path]
+    # Retrieve the latest value from a specific key from the registry
+    def [](key)
+      @cache[key]
     end
 
     # Iterate over every key, value pair in the registry at the root_path
@@ -59,8 +64,8 @@ module RubyDoozer
       @cache.dup.each_pair(&block)
     end
 
-    # Returns [Array<String>] all paths in the registry
-    def paths
+    # Returns [Array<String>] all keys in the registry
+    def keys
       @cache.keys
     end
 
@@ -71,26 +76,26 @@ module RubyDoozer
 
     # When an entry is created the block will be called
     #  Parameters
-    #    path
-    #      The relative path to watch for changes
+    #    key
+    #      The relative key to watch for changes
     #    block
     #      The block to be called
     #
     #  Parameters passed to the block:
-    #    path
-    #      The path that was created
-    #      Supplying a path of '*' means all paths
+    #    key
+    #      The key that was created
+    #      Supplying a key of '*' means all paths
     #      Default: '*'
     #
     #    value
     #      New value from doozer
     #
     # Example:
-    #   registry.on_update do |path, value|
-    #     puts "#{path} was created with #{value}"
+    #   registry.on_update do |key, value, revision|
+    #     puts "#{key} was created with #{value}"
     #   end
-    def on_create(path='*', &block)
-      ((@create_subscribers ||= ThreadSafe::Hash.new)[path] ||= ThreadSafe::Array.new) << block
+    def on_create(key='*', &block)
+      ((@create_subscribers ||= ThreadSafe::Hash.new)[key] ||= ThreadSafe::Array.new) << block
     end
 
     ############################
@@ -113,30 +118,30 @@ module RubyDoozer
       @cache[doozer_path]
     end
 
-    # The path has been added or updated in the registry
-    def changed(path, value)
-      previous_value = get_cached_value(path)
+    # The key has been added or updated in the registry
+    def changed(key, value, revision)
+      previous_value = get_cached_value(key)
 
       # Update in memory copy
-      set_cached_value(path, value)
+      set_cached_value(key, value)
 
       # It is an update if we already have a value
       if previous_value
         # Call parent which will notify Updated Subscribers
         super
       else
-        logger.debug { "Created: #{path} => #{value}" }
+        logger.debug "Created: #{key}", value
 
         return unless @create_subscribers
 
         # Subscribers to specific paths
-        if subscribers = @create_subscribers[path]
-          subscribers.each{|subscriber| subscriber.call(path, value)}
+        if subscribers = @create_subscribers[key]
+          subscribers.each{|subscriber| subscriber.call(key, value, revision)}
         end
 
         # Any subscribers for all events?
         if all_subscribers = @create_subscribers['*']
-          all_subscribers.each{|subscriber| subscriber.call(path, value)}
+          all_subscribers.each{|subscriber| subscriber.call(key, value, revision)}
         end
       end
     end

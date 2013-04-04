@@ -65,9 +65,11 @@ class RegistryTest < Test::Unit::TestCase
       [nil, '*'].each do |monitor_path|
         context "with monitor_path:#{monitor_path}" do
           should "callback on update" do
+            updated_revision = nil
             updated_path = nil
             updated_value = nil
-            @registry.on_update(monitor_path||'bar') do |path, value|
+            @registry.on_update(monitor_path||'bar') do |path, value, revision|
+              updated_revision = revision
               updated_path = path
               updated_value = value
             end
@@ -78,12 +80,15 @@ class RegistryTest < Test::Unit::TestCase
             sleep 0.3
             assert_equal 'bar', updated_path
             assert_equal 'updated', updated_value
+            assert_equal true, updated_revision > 0
           end
 
           should "callback on delete" do
             deleted_path = nil
-            @registry.on_delete(monitor_path||'bar') do |path|
+            deleted_revision = nil
+            @registry.on_delete(monitor_path||'bar') do |path, revision|
               deleted_path = path
+              deleted_revision = revision
             end
             # Allow monitoring thread to start
             sleep 0.1
@@ -91,6 +96,7 @@ class RegistryTest < Test::Unit::TestCase
             @registry.delete('bar')
             sleep 0.3
             assert_equal 'bar', deleted_path
+            assert_equal true, deleted_revision > 0
           end
         end
       end
