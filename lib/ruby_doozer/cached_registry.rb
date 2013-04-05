@@ -41,7 +41,7 @@ module RubyDoozer
         @current_revision = doozer.current_revision
         # Fetch all the configuration information from Doozer and set the internal copy
         doozer.walk(key, @current_revision) do |key, value, revision|
-          set_cached_value(relative_key(key), value)
+          set_cached_value(relative_key(key), @deserializer.deserialize(value))
         end
       end
 

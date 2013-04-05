@@ -16,17 +16,32 @@ SemanticLogger.add_appender('test.log') if SemanticLogger.appenders.size == 0
 # Unit Test for RubyDoozer::Client
 class CachedRegistryTest < Test::Unit::TestCase
   context RubyDoozer::CachedRegistry do
-    context "with test data" do
+    setup do
+      @date      = Date.parse('2013-04-04')
+      @time      = Time.at(1365102658)
+      @test_data = {
+        'bar'                     => 'test',
+        'one'                     => 'one',
+        'string_with_underscores' => 'and_a_value',
+        'two'                     => :two,
+        'integer'                 => 10,
+        'float'                   => 10.5,
+        'date'                    => @date,
+        'time'                    => @time,
+        'false'                   => false,
+        'true'                    => true,
+        'child'                   => { :symbol_with_underscores  => :and_a_value, :this => 'is', :an => ['array', :symbol, :smallest => {'a' => 'b', :c => :d}]}
+      }
+  #    @test_data['all_types'] = @test_data.dup
+    end
+    context "with cached registry" do
       setup do
-        @test_data = {
-          'bar' => 'test',
-          'one' => 'one',
-          'two' => 'two',
-        }
-        # Doozer does not allow '_' in path names
-        @root_path = "/registrytest"
-        @registry = RubyDoozer::CachedRegistry.new(:root_path => @root_path)
-        @test_data.each_pair {|k,v| @registry[k] = v}
+        # Pre-load 'child' into registry before registry is created
+        registry = RubyDoozer::Registry.new(:root => "/registrytest")
+        registry['child'] = @test_data['child']
+        registry.finalize
+        @registry = RubyDoozer::CachedRegistry.new(:root => "/registrytest")
+        @test_data.each_pair {|k,v| @registry[k] = v unless k == 'child'}
         # Give doozer time to send back the changes
         sleep 0.5
       end
@@ -39,22 +54,30 @@ class CachedRegistryTest < Test::Unit::TestCase
         end
       end
 
-      should "have complete registry" do
+      should 'have pre-loaded element' do
+        assert_hash_equal @test_data['child'], @registry['child']
+      end
+
+      should "#[]" do
         @test_data.each_pair do |k,v|
           assert_equal v, @registry[k], "Expected #{k}=>#{v}, #{@registry.to_h.inspect}"
         end
       end
 
-      should "iterate over complete registry" do
-        @registry.each_pair do |k,v|
-          assert_equal v, @test_data[k], "Registry #{k}=>#{v}, #{@registry.to_h.inspect}"
-        end
+      should "#each_pair" do
+        h = {}
+        @registry.each_pair {|k,v| h[k] = v}
+        assert_hash_equal @test_data, h
       end
 
-      should "successfully set and retrieve data" do
+      should "#to_h" do
+        assert_hash_equal @test_data, @registry.to_h
+      end
+
+      should "#[]=" do
         @registry['three'] = 'value'
         # Give doozer time to send back the change
-        sleep 0.5
+        sleep 0.3
         result = @registry['three']
         assert_equal 'value', result
       end
@@ -159,5 +182,17 @@ class CachedRegistryTest < Test::Unit::TestCase
       end
     end
 
+  end
+
+  # Verify that two hashes match
+  def assert_hash_equal(expected, actual)
+    assert_equal expected.size, actual.size, "Actual hash only has #{actual.size} elements when it should have #{expected.size}. Expected:#{expected.inspect}, Actual#{actual.inspect}"
+    expected.each_pair do |k,v|
+      if v.is_a?(Hash)
+        assert_hash_equal(v, actual[k])
+      else
+        assert_equal expected[k], actual[k], "Expected: #{expected.inspect}, Actual:#{actual.inspect}"
+      end
+    end
   end
 end

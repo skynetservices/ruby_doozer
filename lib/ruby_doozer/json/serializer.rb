@@ -7,6 +7,8 @@ module RubyDoozer
       def self.serialize(value)
         if value.is_a?(Hash) || value.is_a?(Array)
           MultiJson.encode(desymbolize(value))
+        elsif value.is_a?(Symbol)
+          desymbolize_symbol(value)
         else
           value.to_s
         end
