@@ -83,7 +83,7 @@ module RubyDoozer
     #     Maximum size of the connection pool to doozer
     #     Default: 10
     #
-    def initialize(params)
+    def initialize(params, &block)
       params = params.dup
       @root = params.delete(:root) || params.delete(:root_path)
       raise "Missing mandatory parameter :root" unless @root
@@ -119,6 +119,10 @@ module RubyDoozer
       ) do
         RubyDoozer::Client.new(@doozer_config)
       end
+
+      # Go through entire registry based on the supplied root path passing
+      # all the values to supplied block
+      each_pair(&block) if block
 
       # Generate warning log entries for any unknown configuration options
       params.each_pair {|k,v| logger.warn "Ignoring unknown configuration option: #{k}"}
@@ -162,8 +166,9 @@ module RubyDoozer
     def each_pair(&block)
       key = "#{@root}/**"
       doozer_pool.with_connection do |doozer|
-        doozer.walk(key) do |key, value, revision|
-          block.call(relative_key(key), @deserializer.deserialize(value))
+        current_revision = doozer.current_revision
+        doozer.walk(key, current_revision) do |key, value, revision|
+          block.call(relative_key(key), @deserializer.deserialize(value), revision)
         end
       end
     end
@@ -250,7 +255,7 @@ module RubyDoozer
       "#{@root}/#{relative_key}"
     end
 
-    # Returns the full key given a relative key
+    # Returns the relative key given a full key
     def relative_key(full_key)
       full_key.sub(@root_with_trail, '')
     end
@@ -310,7 +315,7 @@ module RubyDoozer
 
         case node.flags
         when 4
-          changed(key,  @deserializer.deserialize(node.value), node.rev)
+          changed(key, @deserializer.deserialize(node.value), node.rev)
         when 8
           deleted(key, node.rev)
         else
