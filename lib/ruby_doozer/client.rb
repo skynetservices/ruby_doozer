@@ -156,6 +156,7 @@ module RubyDoozer
       walk('/ctl/node/*/addr') do |path, value, revision|
         hosts << value unless hosts.include? value
       end
+      hosts
     end
 
     # Wait for changes to the supplied path
