@@ -18,7 +18,7 @@ class RegistryTest < Test::Unit::TestCase
   context RubyDoozer::Registry do
     setup do
       @date      = Date.parse('2013-04-04')
-      @time      = Time.at(1365102658)
+      @time      = Time.at(1365102658).utc
       @test_data = {
         'bar'                     => 'test',
         'one'                     => 'one',
@@ -49,7 +49,7 @@ class RegistryTest < Test::Unit::TestCase
           'false'                   => 'false',
           'true'                    => 'true',
           'child'                   => "{\":symbol_with_underscores\":\":and_a_value\",\":this\":\"is\",\":an\":[\"array\",\":symbol\",{\":smallest\":{\"a\":\"b\",\":c\":\":d\"}}]}",
-          'all_types'               => "{\"bar\":\"test\",\"one\":\"one\",\"string_with_underscores\":\"and_a_value\",\"two\":\":two\",\"integer\":\"10\",\"float\":\"10.5\",\"date\":\"2013-04-04\",\"time\":\"2013-04-04 15:10:58 -0400\",\"false\":\"false\",\"true\":\"true\",\"child\":{\":symbol_with_underscores\":\":and_a_value\",\":this\":\"is\",\":an\":[\"array\",\":symbol\",{\":smallest\":{\"a\":\"b\",\":c\":\":d\"}}]}}"
+          'all_types'               => "{\"bar\":\"test\",\"one\":\"one\",\"string_with_underscores\":\"and_a_value\",\"two\":\":two\",\"integer\":\"10\",\"float\":\"10.5\",\"date\":\"2013-04-04\",\"time\":\"2013-04-04 19:10:58 UTC\",\"false\":\"false\",\"true\":\"true\",\"child\":{\":symbol_with_underscores\":\":and_a_value\",\":this\":\"is\",\":an\":[\"array\",\":symbol\",{\":smallest\":{\"a\":\"b\",\":c\":\":d\"}}]}}"
         }
       end
 
